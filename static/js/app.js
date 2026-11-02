@@ -11,6 +11,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const ctx = canvas.getContext('2d');
   const stagePlaceholder = document.getElementById('stagePlaceholder');
   const activeCameraControls = document.getElementById('activeCameraControls');
+  const headerStartBtn = document.getElementById('headerStartBtn');
   const cameraToggleBtn = document.getElementById('cameraToggleBtn');
   const placeholderStartBtn = document.getElementById('placeholderStartBtn');
   const flipCameraBtn = document.getElementById('flipCameraBtn');
@@ -161,34 +162,90 @@ document.addEventListener('DOMContentLoaded', () => {
       stagePlaceholder.style.display = 'flex';
       stagePlaceholder.style.opacity = '1';
 
+      // Check for camera support & secure context
+      const hasMediaDevices = navigator.mediaDevices && typeof navigator.mediaDevices.getUserMedia === 'function';
+      const hasLegacyGUM = navigator.getUserMedia || navigator.webkitGetUserMedia || navigator.mozGetUserMedia;
+
+      if (!hasMediaDevices && !hasLegacyGUM) {
+        let msg = "Camera API is not supported in this browser.";
+        if (window.isSecureContext === false) {
+          msg = "Camera requires HTTPS. Browsers block camera on insecure HTTP IP addresses. Please open via localhost:5000 or your deployed HTTPS URL!";
+        }
+        throw new Error(msg);
+      }
+
       // Ensure previous tracks stopped if switching
       if (stream) {
         stream.getTracks().forEach(track => track.stop());
         stream = null;
       }
 
-      // Constraints with graceful fallback for mobile devices
-      const constraints = {
-        video: {
-          width: { ideal: 640 },
-          height: { ideal: 480 },
-          facingMode: { ideal: currentFacingMode }
-        },
-        audio: false
-      };
-
+      // 1. Try standard ideal constraints with facing mode
+      let mediaStream = null;
       try {
-        stream = await navigator.mediaDevices.getUserMedia(constraints);
+        if (hasMediaDevices) {
+          mediaStream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              width: { ideal: 640 },
+              height: { ideal: 480 },
+              facingMode: currentFacingMode ? { ideal: currentFacingMode } : undefined
+            },
+            audio: false
+          });
+        }
       } catch (errConstraint) {
-        // Fallback without exact constraints
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: true,
-          audio: false
+        console.warn("Primary getUserMedia constraint failed, attempting basic fallback:", errConstraint);
+      }
+
+      // 2. Try basic video: true fallback
+      if (!mediaStream && hasMediaDevices) {
+        try {
+          mediaStream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: false
+          });
+        } catch (errBasic) {
+          console.warn("Basic getUserMedia failed, attempting legacy fallback:", errBasic);
+        }
+      }
+
+      // 3. Try legacy fallback if needed
+      if (!mediaStream && hasLegacyGUM) {
+        mediaStream = await new Promise((resolve, reject) => {
+          const legacyFn = navigator.getUserMedia || navigator.webkitGetUserMedia || navigator.mozGetUserMedia;
+          legacyFn.call(navigator, { video: true }, resolve, reject);
         });
       }
 
+      if (!mediaStream) {
+        throw new Error("Unable to establish camera stream.");
+      }
+
+      stream = mediaStream;
+      video.muted = true;
+      video.defaultMuted = true;
+      video.playsInline = true;
+      video.setAttribute('playsinline', '');
+      video.setAttribute('webkit-playsinline', '');
       video.srcObject = stream;
-      await video.play();
+
+      // Ensure video is ready before playback to prevent play() rejections
+      await new Promise((resolve) => {
+        if (video.readyState >= 2) {
+          resolve();
+        } else {
+          video.onloadedmetadata = () => resolve();
+          setTimeout(resolve, 800); // 800ms safety timeout
+        }
+      });
+
+      try {
+        await video.play();
+      } catch (playErr) {
+        console.warn("Initial video.play() warning:", playErr);
+        video.muted = true;
+        await video.play();
+      }
 
       isStreaming = true;
       lastHandDetectedTime = performance.now();
@@ -200,17 +257,33 @@ document.addEventListener('DOMContentLoaded', () => {
       camDot.className = "status-dot dot-active";
       camStatusText.textContent = "Camera live";
 
-      // Show active controls
+      // Toggle UI button visibility
+      if (headerStartBtn) headerStartBtn.style.display = 'none';
       activeCameraControls.style.display = 'flex';
 
       updateVideoFlip();
       resizeCanvas();
       startInferenceLoop();
+      showToast("Camera started successfully", "info");
     } catch (err) {
       console.error("Camera access error:", err);
       stagePlaceholder.style.display = 'none';
       cameraErrorState.style.display = 'flex';
-      showToast("Camera access was blocked or unavailable.", "error");
+
+      let userMsg = "Camera access was blocked or unavailable.";
+      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+        userMsg = "Camera permission was denied. Please click the camera icon in your browser address bar and choose 'Allow'.";
+      } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+        userMsg = "No camera was detected on this device.";
+      } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
+        userMsg = "Camera is currently in use by another application (e.g. Zoom, Teams, or another browser window).";
+      } else if (err.message && err.message.includes("HTTPS")) {
+        userMsg = err.message;
+      }
+
+      const errorTitle = cameraErrorState.querySelector('.error-title');
+      if (errorTitle) errorTitle.textContent = userMsg;
+      showToast(userMsg, "error");
     }
   }
 
@@ -228,6 +301,7 @@ document.addEventListener('DOMContentLoaded', () => {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     stagePlaceholder.style.display = 'flex';
     stagePlaceholder.style.opacity = '1';
+    if (headerStartBtn) headerStartBtn.style.display = 'inline-flex';
     activeCameraControls.style.display = 'none';
     cameraErrorState.style.display = 'none';
     inactivityNotice.style.display = 'none';
@@ -253,6 +327,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   cameraToggleBtn.addEventListener('click', stopCamera);
   placeholderStartBtn.addEventListener('click', startCamera);
+  if (headerStartBtn) headerStartBtn.addEventListener('click', startCamera);
   if (cameraRetryBtn) cameraRetryBtn.addEventListener('click', startCamera);
 
   function updateVideoFlip() {
