@@ -396,24 +396,24 @@ document.addEventListener('DOMContentLoaded', () => {
     // Update Mobile HUD
     if (mobileHudPill) {
       mobileHudPill.style.display = "flex";
-      hudSign.textContent = (sign === "UNCERTAIN") ? "--" : sign;
+      hudSign.textContent = (sign === "UNCERTAIN" || sign === "NEUTRAL") ? "--" : sign;
       hudConf.textContent = `${confPct}%`;
     }
 
     // Update typography
-    if (sign === "UNCERTAIN") {
-      updateDetectionStatus("Detecting", "detecting");
+    if (sign === "UNCERTAIN" || sign === "NEUTRAL") {
+      updateDetectionStatus(sign === "NEUTRAL" ? "Hand ready (neutral)" : "Detecting gesture", "detecting");
       predictedSign.textContent = "--";
       predictedSign.classList.add('no-sign');
-      predictedSignHelper.textContent = "Adjust hand angle or move closer";
-      confidenceBar.classList.add('warn');
+      predictedSignHelper.textContent = sign === "NEUTRAL" ? "Hand detected — form a sign gesture" : "Adjust hand angle or hold gesture steady";
+      confidenceBar.classList.remove('warn');
       highlightActiveChip(null);
     } else {
       updateDetectionStatus("Locked", "active");
       predictedSign.textContent = sign;
       predictedSign.classList.remove('no-sign');
       predictedSignHelper.textContent = `${confPct}% confidence`;
-      if (confPct < 50) {
+      if (confPct < 70) {
         confidenceBar.classList.add('warn');
       } else {
         confidenceBar.classList.remove('warn');
@@ -528,7 +528,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // Sentence Accumulation & Tokenized Output
   // ==========================================
   function handleSentenceAccumulation(sign, confidence) {
-    if (!sign || sign === "UNCERTAIN" || confidence < 0.45) {
+    if (!sign || sign === "UNCERTAIN" || sign === "NEUTRAL" || confidence < 0.70) {
       currentStableSign = null;
       holdProgressBar.style.width = "0%";
       holdProgressBar.classList.remove('committed');
@@ -691,7 +691,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function handleAutoSpeak(sign, confidence) {
-    if (!autoSpeakToggle.checked || !sign || sign === "UNCERTAIN" || confidence < 0.50) return;
+    if (!autoSpeakToggle.checked || !sign || sign === "UNCERTAIN" || sign === "NEUTRAL" || confidence < 0.70) return;
 
     const now = performance.now();
     const cooldown = (sign === lastSpokenSign) ? 2500 : 1200;

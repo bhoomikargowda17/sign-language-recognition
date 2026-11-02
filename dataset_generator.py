@@ -27,7 +27,8 @@ class LandmarkDatasetGenerator:
         "A",
         "B",
         "C",
-        "D"
+        "D",
+        "NEUTRAL"
     ]
 
     def __init__(self, output_dir="data"):
@@ -266,6 +267,19 @@ class LandmarkDatasetGenerator:
             hand[12] = np.array([0.49, 0.25, 0.06])
             hand[16] = np.array([0.55, 0.28, 0.06])
             hand[20] = np.array([0.61, 0.34, 0.06])
+
+        elif sign_name == "NEUTRAL":
+            # Natural relaxed hand in resting state
+            # Fingers loosely relaxed/partially curled, thumb resting comfortably
+            hand[1] = np.array([0.43, 0.76, -0.01])
+            hand[2] = np.array([0.38, 0.68, -0.01])
+            hand[3] = np.array([0.35, 0.60, -0.02])
+            hand[4] = np.array([0.34, 0.52, -0.02])
+
+            for base_idx, mcp_x in [(5, 0.44), (9, 0.50), (13, 0.56), (17, 0.62)]:
+                hand[base_idx + 1] = np.array([mcp_x, 0.46, 0.01])
+                hand[base_idx + 2] = np.array([mcp_x, 0.38, 0.02])
+                hand[base_idx + 3] = np.array([mcp_x, 0.31, 0.02])
 
         return hand
 
