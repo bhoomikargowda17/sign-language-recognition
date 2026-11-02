@@ -628,7 +628,6 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
-    const now = performance.now();
     if (currentStableSign !== sign) {
       currentStableSign = sign;
       stableSignStartTime = now;
