@@ -14,6 +14,11 @@ document.addEventListener('DOMContentLoaded', () => {
   const cameraToggleBtn = document.getElementById('cameraToggleBtn');
   const placeholderStartBtn = document.getElementById('placeholderStartBtn');
   const flipCameraBtn = document.getElementById('flipCameraBtn');
+  const switchCameraBtn = document.getElementById('switchCameraBtn');
+  const mobileHudPill = document.getElementById('mobileHudPill');
+  const hudSign = document.getElementById('hudSign');
+  const hudHoldFill = document.getElementById('hudHoldFill');
+  const hudConf = document.getElementById('hudConf');
   const camDot = document.getElementById('camDot');
   const camStatusText = document.getElementById('camStatusText');
   const cameraErrorState = document.getElementById('cameraErrorState');
@@ -94,6 +99,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let stream = null;
   let isStreaming = false;
   let isFlipped = true;
+  let currentFacingMode = "user"; // "user" (front) or "environment" (rear)
   let animationFrameId = null;
   let isPredicting = false;
   let frameCount = 0;
@@ -127,6 +133,23 @@ document.addEventListener('DOMContentLoaded', () => {
   const captureCanvas = document.createElement('canvas');
   const captureCtx = captureCanvas.getContext('2d');
 
+  // Mobile Audio & Speech Unlock on First User Touch
+  function unlockMobileAudio() {
+    if ('speechSynthesis' in window) {
+      try {
+        const silent = new SpeechSynthesisUtterance('');
+        silent.volume = 0;
+        window.speechSynthesis.speak(silent);
+      } catch (e) {
+        // Silently catch if not allowed yet
+      }
+    }
+    document.removeEventListener('touchstart', unlockMobileAudio);
+    document.removeEventListener('click', unlockMobileAudio);
+  }
+  document.addEventListener('touchstart', unlockMobileAudio, { once: true, passive: true });
+  document.addEventListener('click', unlockMobileAudio, { once: true });
+
   // ==========================================
   // Camera Management
   // ==========================================
@@ -136,14 +159,31 @@ document.addEventListener('DOMContentLoaded', () => {
       stagePlaceholder.style.display = 'flex';
       stagePlaceholder.style.opacity = '1';
 
-      stream = await navigator.mediaDevices.getUserMedia({
+      // Ensure previous tracks stopped if switching
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+        stream = null;
+      }
+
+      // Constraints with graceful fallback for mobile devices
+      const constraints = {
         video: {
           width: { ideal: 640 },
           height: { ideal: 480 },
-          facingMode: "user"
+          facingMode: { ideal: currentFacingMode }
         },
         audio: false
-      });
+      };
+
+      try {
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
+      } catch (errConstraint) {
+        // Fallback without exact constraints
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: false
+        });
+      }
 
       video.srcObject = stream;
       await video.play();
@@ -191,6 +231,7 @@ document.addEventListener('DOMContentLoaded', () => {
     inactivityNotice.style.display = 'none';
     trackingBadge.style.display = 'none';
 
+    if (mobileHudPill) mobileHudPill.style.display = 'none';
     camDot.className = "status-dot dot-inactive";
     camStatusText.textContent = "Camera off";
 
@@ -225,7 +266,20 @@ document.addEventListener('DOMContentLoaded', () => {
   flipCameraBtn.addEventListener('click', () => {
     isFlipped = !isFlipped;
     updateVideoFlip();
+    showToast(isFlipped ? "Mirror view enabled" : "Mirror view disabled", "info");
   });
+
+  if (switchCameraBtn) {
+    switchCameraBtn.addEventListener('click', async () => {
+      currentFacingMode = (currentFacingMode === 'user') ? 'environment' : 'user';
+      isFlipped = (currentFacingMode === 'user');
+      updateVideoFlip();
+      if (isStreaming) {
+        await startCamera();
+        showToast(currentFacingMode === 'user' ? 'Front camera active' : 'Rear camera active', 'info');
+      }
+    });
+  }
 
   function resizeCanvas() {
     if (video.videoWidth > 0 && video.videoHeight > 0) {
@@ -306,6 +360,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (!data.hand_detected || !data.landmarks) {
       trackingBadge.style.display = "none";
+      if (mobileHudPill) {
+        mobileHudPill.style.display = "none";
+        hudSign.textContent = "--";
+        hudConf.textContent = "0%";
+        if (hudHoldFill) hudHoldFill.style.width = "0%";
+      }
       updateDetectionStatus("Waiting for hand", "neutral");
       predictedSign.textContent = "--";
       predictedSign.classList.add('no-sign');
@@ -332,6 +392,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const sign = data.smoothed_sign || data.sign || "UNCERTAIN";
     const confidence = data.confidence || 0.0;
     const confPct = Math.round(confidence * 100);
+
+    // Update Mobile HUD
+    if (mobileHudPill) {
+      mobileHudPill.style.display = "flex";
+      hudSign.textContent = (sign === "UNCERTAIN") ? "--" : sign;
+      hudConf.textContent = `${confPct}%`;
+    }
 
     // Update typography
     if (sign === "UNCERTAIN") {
@@ -465,6 +532,7 @@ document.addEventListener('DOMContentLoaded', () => {
       currentStableSign = null;
       holdProgressBar.style.width = "0%";
       holdProgressBar.classList.remove('committed');
+      if (hudHoldFill) hudHoldFill.style.width = "0%";
       return;
     }
 
@@ -474,10 +542,12 @@ document.addEventListener('DOMContentLoaded', () => {
       stableSignStartTime = now;
       holdProgressBar.style.width = "0%";
       holdProgressBar.classList.remove('committed');
+      if (hudHoldFill) hudHoldFill.style.width = "0%";
     } else {
       const elapsed = now - stableSignStartTime;
       const pct = Math.min(100, Math.round((elapsed / SIGN_HOLD_DURATION_MS) * 100));
       holdProgressBar.style.width = `${pct}%`;
+      if (hudHoldFill) hudHoldFill.style.width = `${pct}%`;
 
       if (elapsed >= SIGN_HOLD_DURATION_MS) {
         if (lastAppendedSign !== sign) {
@@ -487,6 +557,7 @@ document.addEventListener('DOMContentLoaded', () => {
           setTimeout(() => {
             holdProgressBar.style.width = "0%";
             holdProgressBar.classList.remove('committed');
+            if (hudHoldFill) hudHoldFill.style.width = "0%";
           }, 300);
         }
       }
