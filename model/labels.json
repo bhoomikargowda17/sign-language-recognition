@@ -1,0 +1,26 @@
+{
+  "classes": [
+    "A",
+    "AM",
+    "B",
+    "C",
+    "D",
+    "HELLO",
+    "HELP",
+    "I",
+    "NEED",
+    "NO",
+    "PEACE",
+    "RAGHURAM",
+    "STOP",
+    "THANK YOU",
+    "YES"
+  ],
+  "num_classes": 15,
+  "num_features": 63,
+  "total_samples": 3180,
+  "test_accuracy": 0.9937106918238994,
+  "timestamp": "2026-11-01T11:14:56.370527",
+  "model_type": "RandomForestClassifier",
+  "n_estimators": 150
+}

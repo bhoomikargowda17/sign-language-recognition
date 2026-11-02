@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SignAI Vision</title>
+  <meta name="description" content="Real-time sign language recognition using MediaPipe 21 hand landmarks, Random Forest classification, and browser speech synthesis.">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%230F766E' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M18 11V6a2 2 0 0 0-2-2 2 2 0 0 0-2 2v0'/%3E%3Cpath d='M14 10V4a2 2 0 0 0-2-2 2 2 0 0 0-2 2v2'/%3E%3Cpath d='M10 10.5V6a2 2 0 0 0-2-2 2 2 0 0 0-2 2v8'/%3E%3Cpath d='M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+  <!-- Slim 56px Enterprise Navigation Bar -->
+  <header class="app-header">
+    <div class="header-inner">
+      <div class="brand">
+        <svg class="brand-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M18 11V6a2 2 0 0 0-2-2 2 2 0 0 0-2 2v0"/>
+          <path d="M14 10V4a2 2 0 0 0-2-2 2 2 0 0 0-2 2v2"/>
+          <path d="M10 10.5V6a2 2 0 0 0-2-2 2 2 0 0 0-2 2v8"/>
+          <path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/>
+        </svg>
+        <span class="brand-title">SignAI Vision</span>
+      </div>
+
+      <div class="header-status">
+        <div class="status-indicator-group" id="cameraStatusPill">
+          <span class="status-dot dot-inactive" id="camDot"></span>
+          <span class="status-text" id="camStatusText">Camera off</span>
+        </div>
+        <span class="status-divider" aria-hidden="true"></span>
+        <div class="status-indicator-group" id="modelStatusPill">
+          <span class="status-text" id="modelStatusText">{{ model_info.num_classes }} signs loaded</span>
+        </div>
+        <span class="status-divider" aria-hidden="true"></span>
+        <button id="guideBtn" class="btn btn-ghost btn-sm" title="View sign reference guide">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
+            <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
+          </svg>
+          <span>Sign guide</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main 12-Column Grid Layout -->
+  <main class="main-container">
+    <!-- LEFT COLUMN (7 columns on desktop): Camera + Sentence Builder -->
+    <div class="col-left">
+      <!-- 1. Camera Card -->
+      <section class="card camera-card" aria-labelledby="cameraCardTitle">
+        <div class="card-header">
+          <h2 class="card-title" id="cameraCardTitle">Camera</h2>
+          <div class="card-header-actions">
+            <!-- Active state controls (hidden when camera is inactive) -->
+            <div class="active-camera-controls" id="activeCameraControls" style="display: none;">
+              <button id="cameraToggleBtn" class="btn btn-secondary btn-sm">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                </svg>
+                <span>Stop</span>
+              </button>
+              <button id="flipCameraBtn" class="btn btn-ghost btn-icon" title="Switch or mirror camera view" aria-label="Switch or mirror camera view">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+                  <path d="M3 3v5h5"/>
+                  <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/>
+                  <path d="M16 21h5v-5"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Video Stage (16:9, Dark Viewport) -->
+        <div class="video-stage" id="videoStage">
+          <video id="webcam" playsinline autoplay muted></video>
+          <canvas id="landmarkCanvas"></canvas>
+
+          <!-- Inactivity notice (appears if camera on but no hand detected for 5s) -->
+          <div class="inactivity-notice" id="inactivityNotice" style="display: none;">
+            <span>Move your hand closer</span>
+          </div>
+
+          <!-- Empty State (Inside Video Viewport) -->
+          <div class="stage-placeholder" id="stagePlaceholder">
+            <div class="placeholder-body">
+              <svg class="placeholder-icon" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="m16 13 5.223 3.482a.5.5 0 0 0 .777-.416V7.934a.5.5 0 0 0-.777-.416L16 11"/>
+                <rect x="2" y="6" width="14" height="12" rx="2"/>
+              </svg>
+              <p class="placeholder-title">Camera is off</p>
+              <button id="placeholderStartBtn" class="btn btn-primary">
+                <span>Start camera</span>
+              </button>
+              <p class="placeholder-muted">Use good lighting and keep your hand fully in frame.</p>
+            </div>
+          </div>
+
+          <!-- Camera Permission Denied Error State -->
+          <div class="camera-error-state" id="cameraErrorState" style="display: none;">
+            <div class="error-body">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#B91C1C" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="10"/>
+                <line x1="12" y1="8" x2="12" y2="12"/>
+                <line x1="12" y1="16" x2="12.01" y2="16"/>
+              </svg>
+              <p class="error-title">Camera permission denied</p>
+              <ol class="error-steps">
+                <li>Click the camera icon in your browser address bar.</li>
+                <li>Set camera permission to <strong>Allow</strong>.</li>
+                <li>Click <strong>Try again</strong> below.</li>
+              </ol>
+              <button id="cameraRetryBtn" class="btn btn-secondary btn-sm">Try again</button>
+            </div>
+          </div>
+
+          <!-- Minimal Status Tag (Active tracking) -->
+          <div class="tracking-badge" id="trackingBadge" style="display: none;">
+            <span id="handednessTag">Hand: --</span>
+            <span class="badge-separator" aria-hidden="true">•</span>
+            <span id="landmarkCountTag">21 landmarks</span>
+          </div>
+        </div>
+
+        <!-- Camera Footer -->
+        <div class="card-footer camera-footer">
+          <div class="footer-left">
+            <label class="switch-control" for="toggleMesh">
+              <input type="checkbox" id="toggleMesh" checked role="switch" aria-label="Show landmarks">
+              <span class="switch-toggle" aria-hidden="true"></span>
+              <span class="switch-text">Show landmarks</span>
+            </label>
+          </div>
+          <div class="footer-right">
+            <div class="performance-readout" aria-label="Camera performance">
+              <span id="fpsCounter">--</span>
+              <span class="perf-separator" aria-hidden="true">•</span>
+              <span id="inferenceLatency">--</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 2. Sentence Builder Card -->
+      <section class="card sentence-card" aria-labelledby="sentenceCardTitle">
+        <div class="card-header">
+          <h2 class="card-title" id="sentenceCardTitle">Sentence</h2>
+          <div class="card-header-actions toolbar-right">
+            <button id="backspaceBtn" class="btn btn-ghost btn-sm" title="Backspace (Backspace key)" aria-label="Backspace">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M21 4H8l-7 8 7 8h13a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2z"/>
+                <line x1="18" y1="9" x2="12" y2="15"/>
+                <line x1="12" y1="9" x2="18" y2="15"/>
+              </svg>
+              <span>Backspace</span>
+            </button>
+            <button id="spaceBtn" class="btn btn-ghost btn-sm" title="Space (Space key)" aria-label="Space">
+              <span>Space</span>
+            </button>
+            <button id="copyTextBtn" class="btn btn-secondary btn-sm" title="Copy text to clipboard">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+              </svg>
+              <span>Copy</span>
+            </button>
+            <button id="clearTextBtn" class="btn btn-danger-ghost btn-sm" title="Clear all text">
+              <span>Clear</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="card-body sentence-body">
+          <!-- Tokenized visual output field -->
+          <div class="token-container" id="tokenContainer" tabindex="0" role="textbox" aria-label="Sentence tokens output" aria-multiline="true">
+            <span class="token-placeholder" id="tokenPlaceholder">Recognized signs will accumulate here as you hold them steady.</span>
+          </div>
+          <!-- Underlying textarea kept in sync for hooks, clipboard, and forms -->
+          <textarea id="sentenceOutput" class="visually-hidden" placeholder="Recognized signs will accumulate here as you hold them steady..." rows="2" aria-hidden="true"></textarea>
+        </div>
+
+        <div class="card-footer sentence-footer">
+          <button id="speakSentenceBtn" class="btn btn-primary btn-sm" title="Speak sentence (Ctrl+Enter)">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+              <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/>
+            </svg>
+            <span>Speak sentence</span>
+          </button>
+          <p class="helper-text">Hold a sign for 1.2 s to add it.</p>
+        </div>
+      </section>
+    </div>
+
+    <!-- RIGHT COLUMN (5 columns on desktop): Recognition + Speech Settings + Model -->
+    <div class="col-right">
+      <!-- 1. Recognition Card -->
+      <section class="card recognition-card" aria-labelledby="recognitionCardTitle">
+        <div class="card-header">
+          <h2 class="card-title" id="recognitionCardTitle">Recognition</h2>
+          <div class="card-header-actions recognition-status-group">
+            <div class="live-status">
+              <span class="status-dot dot-neutral" id="detectionDot"></span>
+              <span class="status-text" id="detectionStatus">Waiting for hand</span>
+            </div>
+            <button id="speakCurrentBtn" class="btn btn-ghost btn-icon" title="Speak current sign" aria-label="Speak current sign">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="card-body recognition-body" aria-live="polite">
+          <!-- Big 72px Predicted Sign Display -->
+          <div class="sign-viewport">
+            <div class="sign-glyph" id="predictedSign">--</div>
+            <!-- Thin 2px hold progress bar that fills over 1.2s -->
+            <div class="hold-progress-track">
+              <div class="hold-progress-fill" id="holdProgressBar"></div>
+            </div>
+            <p class="sign-subtext" id="predictedSignHelper">Position hand clearly in frame</p>
+          </div>
+
+          <!-- Confidence Meter (6px) -->
+          <div class="metric-block">
+            <div class="metric-row">
+              <span class="metric-label">Confidence</span>
+              <span class="metric-value" id="confidenceValue">0%</span>
+            </div>
+            <div class="progress-track">
+              <div class="progress-fill" id="confidenceBar" style="width: 0%;"></div>
+            </div>
+          </div>
+
+          <!-- Top 4 Predictions List / Skeleton -->
+          <div class="predictions-block">
+            <p class="section-label">Top predictions</p>
+            <div class="predictions-table" id="probabilityList">
+              <!-- Initial neutral skeleton rows -->
+              <div class="prob-row prob-skeleton"><span class="skeleton-name"></span><div class="skeleton-bar"></div><span class="skeleton-val"></span></div>
+              <div class="prob-row prob-skeleton"><span class="skeleton-name"></span><div class="skeleton-bar"></div><span class="skeleton-val"></span></div>
+              <div class="prob-row prob-skeleton"><span class="skeleton-name"></span><div class="skeleton-bar"></div><span class="skeleton-val"></span></div>
+              <div class="prob-row prob-skeleton"><span class="skeleton-name"></span><div class="skeleton-bar"></div><span class="skeleton-val"></span></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 2. Speech Output Accordion (Closed by default) -->
+      <section class="card accordion-card" id="speechCard">
+        <div class="accordion-header" id="speechAccordionHeader" tabindex="0" role="button" aria-expanded="false" aria-controls="speechAccordionBody">
+          <div class="accordion-header-left">
+            <svg class="chevron-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polyline points="6 9 12 15 18 9"/>
+            </svg>
+            <h2 class="card-title">Speech output</h2>
+          </div>
+          <div class="accordion-header-right" onclick="event.stopPropagation();">
+            <label class="switch-control" for="autoSpeakToggle">
+              <input type="checkbox" id="autoSpeakToggle" checked role="switch" aria-label="Auto-speak">
+              <span class="switch-toggle" aria-hidden="true"></span>
+              <span class="switch-text">Auto-speak</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="accordion-body" id="speechAccordionBody" style="display: none;">
+          <div class="form-group">
+            <label for="voiceSelect" class="form-label">Voice</label>
+            <select id="voiceSelect" class="form-select">
+              <option value="">Default system voice</option>
+            </select>
+          </div>
+
+          <div class="sliders-row">
+            <div class="form-group slider-group">
+              <div class="slider-header">
+                <label for="rateSlider" class="form-label">Rate</label>
+                <span class="slider-value"><span id="rateVal">1.0</span>×</span>
+              </div>
+              <input type="range" id="rateSlider" min="0.6" max="1.8" step="0.1" value="1.0">
+            </div>
+
+            <div class="form-group slider-group">
+              <div class="slider-header">
+                <label for="pitchSlider" class="form-label">Pitch</label>
+                <span class="slider-value" id="pitchVal">1.0</span>
+              </div>
+              <input type="range" id="pitchSlider" min="0.5" max="1.5" step="0.1" value="1.0">
+            </div>
+          </div>
+
+          <div class="card-actions-row">
+            <button id="testVoiceBtn" class="btn btn-secondary btn-sm">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
+              </svg>
+              <span>Test voice</span>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- 3. Model Accordion (Closed by default) -->
+      <section class="card accordion-card" id="modelCard">
+        <div class="accordion-header" id="modelAccordionHeader" tabindex="0" role="button" aria-expanded="false" aria-controls="modelAccordionBody">
+          <div class="accordion-header-left">
+            <svg class="chevron-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polyline points="6 9 12 15 18 9"/>
+            </svg>
+            <svg class="model-type-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <ellipse cx="12" cy="5" rx="9" ry="3"/>
+              <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/>
+              <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
+            </svg>
+            <h2 class="card-title">Model</h2>
+          </div>
+        </div>
+
+        <div class="accordion-body" id="modelAccordionBody" style="display: none;">
+          <p class="model-description">Classifies 10 signs from 21 hand landmarks (63 normalized coordinates).</p>
+          
+          <div class="chips-grid" id="classTagsList" aria-label="Available sign classes">
+            <!-- Populated dynamically as 32px chips -->
+          </div>
+
+          <div class="card-actions-row">
+            <button id="openCollectorBtn" class="btn btn-secondary btn-sm">Record custom signs</button>
+            <button id="retrainBtn" class="btn btn-secondary btn-sm">Retrain model</button>
+          </div>
+
+          <!-- Inline retrain progress -->
+          <div class="inline-progress-wrap" id="retrainProgressWrap" style="display: none;">
+            <div class="inline-progress-bar">
+              <div class="inline-progress-fill" id="retrainProgressFill"></div>
+            </div>
+            <span class="inline-progress-text" id="retrainProgressText">Retraining Random Forest model...</span>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <!-- Sign Reference Guide Modal -->
+  <div class="modal-backdrop" id="guideModal" role="dialog" aria-modal="true" aria-labelledby="guideModalTitle">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3 class="modal-title" id="guideModalTitle">Sign reference guide</h3>
+        <button class="btn btn-ghost btn-icon" id="closeGuideBtn" aria-label="Close guide">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"/>
+            <line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-intro">Position your hand clearly in front of the camera with good lighting. MediaPipe tracks 21 skeletal landmarks to classify these gestures:</p>
+        <div class="guide-table">
+          <div class="guide-item" id="guide-HELLO">
+            <div class="guide-badge">HELLO</div>
+            <div class="guide-text">
+              <h4>Open wave</h4>
+              <p>Open waving hand with palm facing forward and all five fingers spread naturally wide apart.</p>
+            </div>
+          </div>
+          <div class="guide-item" id="guide-YES">
+            <div class="guide-badge">YES</div>
+            <div class="guide-text">
+              <h4>Affirmative fist</h4>
+              <p>Closed fist with thumb curled across fingers in a firm upright posture.</p>
+            </div>
+          </div>
+          <div class="guide-item" id="guide-NO">
+            <div class="guide-badge">NO</div>
+            <div class="guide-text">
+              <h4>3-finger pinch</h4>
+              <p>Index and middle fingers extended forward and touching thumb tip (beak pinch); ring and pinky curled into palm.</p>
+            </div>
+          </div>
+          <div class="guide-item" id="guide-THANK YOU">
+            <div class="guide-badge">THANK YOU</div>
+            <div class="guide-text">
+              <h4>Flat hand forward</h4>
+              <p>Flat open hand with fingers together, moving smoothly forward toward the viewer.</p>
+            </div>
+          </div>
+          <div class="guide-item" id="guide-HELP">
+            <div class="guide-badge">HELP</div>
+            <div class="guide-text">
+              <h4>Thumbs up</h4>
+              <p>Thumb extended straight up firmly with all four fingers curled tightly into a fist.</p>
+            </div>
+          </div>
+          <div class="guide-item" id="guide-STOP">
+            <div class="guide-badge">STOP</div>
+            <div class="guide-text">
+              <h4>Open palm upward</h4>
+              <p>Flat open hand pointing straight up with palm facing camera and all five fingers held tightly together.</p>
+            </div>
+          </div>
+          <div class="guide-item" id="guide-A">
+            <div class="guide-badge">A</div>
+            <div class="guide-text">
+              <h4>ASL letter A</h4>
+              <p>Four fingers tightly curled into palm, thumb upright resting alongside index finger knuckle.</p>
+            </div>
+          </div>
+          <div class="guide-item" id="guide-B">
+            <div class="guide-badge">B</div>
+            <div class="guide-text">
+              <h4>ASL letter B</h4>
+              <p>Four fingers held straight up touching together, thumb folded flat across palm center.</p>
+            </div>
+          </div>
+          <div class="guide-item" id="guide-C">
+            <div class="guide-badge">C</div>
+            <div class="guide-text">
+              <h4>ASL letter C</h4>
+              <p>Hand arched into an open 'C' profile with fingers curved above and thumb curved below, leaving a clear opening.</p>
+            </div>
+          </div>
+          <div class="guide-item" id="guide-D">
+            <div class="guide-badge">D</div>
+            <div class="guide-text">
+              <h4>ASL letter D</h4>
+              <p>Index finger pointing straight up, thumb touching tips of middle, ring, and pinky in a loop.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary btn-sm" id="closeGuideBottomBtn">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Record Custom Signs Modal -->
+  <div class="modal-backdrop" id="collectorModal" role="dialog" aria-modal="true" aria-labelledby="collectorModalTitle">
+    <div class="modal-dialog modal-dialog-sm">
+      <div class="modal-header">
+        <h3 class="modal-title" id="collectorModalTitle">Record custom signs</h3>
+        <button class="btn btn-ghost btn-icon" id="closeCollectorBtn" aria-label="Close recording dialog">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"/>
+            <line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-intro">Enter a sign label and position your hand in camera view to record landmark samples into the local dataset.</p>
+        
+        <div class="form-group">
+          <label for="newSignLabel" class="form-label">Sign label</label>
+          <input type="text" id="newSignLabel" placeholder="e.g. PEACE, OK, E" class="form-input" maxlength="20">
+        </div>
+
+        <div class="collector-status-box" id="collectorStatusBox">
+          <p class="collector-status-text" id="collectorStatusText">Ready to capture. Place your hand in view.</p>
+          <div class="sample-progress-bar">
+            <div class="sample-fill" id="sampleFill" style="width: 0%;"></div>
+          </div>
+          <p class="sample-count-badge" id="sampleCountBadge">0 / 30 samples</p>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="quickRetrainBtn" class="btn btn-secondary btn-sm">Retrain model now</button>
+        <button id="startRecordingBtn" class="btn btn-primary btn-sm">Record 30 samples</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Retrain Confirmation Modal -->
+  <div class="modal-backdrop" id="retrainConfirmModal" role="dialog" aria-modal="true" aria-labelledby="retrainConfirmTitle" style="display: none;">
+    <div class="modal-dialog modal-dialog-sm">
+      <div class="modal-header">
+        <h3 class="modal-title" id="retrainConfirmTitle">Retrain model</h3>
+        <button class="btn btn-ghost btn-icon" id="closeRetrainConfirmBtn" aria-label="Cancel">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"/>
+            <line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-intro">This will retrain the Random Forest classifier on all landmark samples in <code>data/dataset.csv</code>. Training takes approximately 2 to 4 seconds.</p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary btn-sm" id="cancelRetrainBtn">Cancel</button>
+        <button class="btn btn-primary btn-sm" id="confirmRetrainBtn">Start retraining</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast / Snackbar Container (Neutral, bottom-left) -->
+  <div class="toast-container" id="toastContainer" aria-live="assertive"></div>
+
+  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
