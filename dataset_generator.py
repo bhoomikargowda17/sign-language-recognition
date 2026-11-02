@@ -27,8 +27,7 @@ class LandmarkDatasetGenerator:
         "A",
         "B",
         "C",
-        "D",
-        "NEUTRAL"
+        "D"
     ]
 
     def __init__(self, output_dir="data"):

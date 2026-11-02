@@ -121,6 +121,8 @@ document.addEventListener('DOMContentLoaded', () => {
   let currentStableSign = null;
   let stableSignStartTime = 0;
   let lastAppendedSign = null;
+  let handEnteredTime = 0;
+  let isHandPresent = false;
   const SIGN_HOLD_DURATION_MS = 1200; // Hold sign 1.2s to commit to sentence
 
   // TTS State
@@ -359,6 +361,7 @@ document.addEventListener('DOMContentLoaded', () => {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     if (!data.hand_detected || !data.landmarks) {
+      isHandPresent = false;
       trackingBadge.style.display = "none";
       if (mobileHudPill) {
         mobileHudPill.style.display = "none";
@@ -380,6 +383,10 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Hand detected
+    if (!isHandPresent) {
+      isHandPresent = true;
+      handEnteredTime = performance.now();
+    }
     lastHandDetectedTime = performance.now();
     trackingBadge.style.display = "flex";
     handednessTag.textContent = `Hand: ${data.handedness || 'Detected'}`;
@@ -396,24 +403,24 @@ document.addEventListener('DOMContentLoaded', () => {
     // Update Mobile HUD
     if (mobileHudPill) {
       mobileHudPill.style.display = "flex";
-      hudSign.textContent = (sign === "UNCERTAIN" || sign === "NEUTRAL") ? "--" : sign;
+      hudSign.textContent = (sign === "UNCERTAIN") ? "--" : sign;
       hudConf.textContent = `${confPct}%`;
     }
 
     // Update typography
-    if (sign === "UNCERTAIN" || sign === "NEUTRAL") {
-      updateDetectionStatus(sign === "NEUTRAL" ? "Hand ready (neutral)" : "Detecting gesture", "detecting");
+    if (sign === "UNCERTAIN") {
+      updateDetectionStatus("Detecting gesture", "detecting");
       predictedSign.textContent = "--";
       predictedSign.classList.add('no-sign');
-      predictedSignHelper.textContent = sign === "NEUTRAL" ? "Hand detected — form a sign gesture" : "Adjust hand angle or hold gesture steady";
-      confidenceBar.classList.remove('warn');
+      predictedSignHelper.textContent = "Hold sign steady in front of camera";
+      confidenceBar.classList.add('warn');
       highlightActiveChip(null);
     } else {
       updateDetectionStatus("Locked", "active");
       predictedSign.textContent = sign;
       predictedSign.classList.remove('no-sign');
       predictedSignHelper.textContent = `${confPct}% confidence`;
-      if (confPct < 70) {
+      if (confPct < 55) {
         confidenceBar.classList.add('warn');
       } else {
         confidenceBar.classList.remove('warn');
@@ -528,7 +535,17 @@ document.addEventListener('DOMContentLoaded', () => {
   // Sentence Accumulation & Tokenized Output
   // ==========================================
   function handleSentenceAccumulation(sign, confidence) {
-    if (!sign || sign === "UNCERTAIN" || sign === "NEUTRAL" || confidence < 0.70) {
+    const now = performance.now();
+
+    // Grace period when hand first enters view (500ms) to prevent false detection on motion
+    if (now - handEnteredTime < 500) {
+      currentStableSign = null;
+      holdProgressBar.style.width = "0%";
+      if (hudHoldFill) hudHoldFill.style.width = "0%";
+      return;
+    }
+
+    if (!sign || sign === "UNCERTAIN" || confidence < 0.50) {
       currentStableSign = null;
       holdProgressBar.style.width = "0%";
       holdProgressBar.classList.remove('committed');
@@ -691,9 +708,10 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function handleAutoSpeak(sign, confidence) {
-    if (!autoSpeakToggle.checked || !sign || sign === "UNCERTAIN" || sign === "NEUTRAL" || confidence < 0.70) return;
+    if (!autoSpeakToggle.checked || !sign || sign === "UNCERTAIN" || confidence < 0.55) return;
 
     const now = performance.now();
+    if (now - handEnteredTime < 500) return; // Ignore initial entry motion
     const cooldown = (sign === lastSpokenSign) ? 2500 : 1200;
 
     if (now - lastSpokenTime >= cooldown) {

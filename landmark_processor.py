@@ -28,7 +28,7 @@ class LandmarkProcessor:
         (5, 9), (9, 13), (13, 17)              # Palm base
     ]
 
-    def __init__(self, static_image_mode=False, max_num_hands=1, min_detection_confidence=0.75, min_tracking_confidence=0.70):
+    def __init__(self, static_image_mode=False, max_num_hands=1, min_detection_confidence=0.60, min_tracking_confidence=0.55):
         self.mp_hands = mp.solutions.hands
         self.hands = self.mp_hands.Hands(
             static_image_mode=static_image_mode,

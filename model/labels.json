@@ -9,7 +9,6 @@
     "HELP",
     "I",
     "NEED",
-    "NEUTRAL",
     "NO",
     "PEACE",
     "RAGHURAM",
@@ -17,11 +16,11 @@
     "THANK YOU",
     "YES"
   ],
-  "num_classes": 16,
+  "num_classes": 15,
   "num_features": 63,
-  "total_samples": 3480,
-  "test_accuracy": 0.9956896551724138,
-  "timestamp": "2026-11-02T16:11:02.409977",
+  "total_samples": 3180,
+  "test_accuracy": 0.9937106918238994,
+  "timestamp": "2026-11-02T16:31:52.021150",
   "model_type": "RandomForestClassifier",
   "n_estimators": 150
 }

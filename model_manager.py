@@ -14,7 +14,7 @@ import numpy as np
 class SignModelManager:
     """Manages model loading, inference, confidence scoring, and prediction smoothing."""
 
-    def __init__(self, model_dir="model", smoothing_window=5, confidence_threshold=0.70):
+    def __init__(self, model_dir="model", smoothing_window=5, confidence_threshold=0.50):
         self.model_dir = model_dir
         self.model_path = os.path.join(model_dir, "sign_classifier.joblib")
         self.labels_path = os.path.join(model_dir, "labels.json")
@@ -89,11 +89,7 @@ class SignModelManager:
             for i in sorted_indices
         ]
 
-        margin = 1.0
-        if len(sorted_indices) >= 2:
-            margin = float(probas[sorted_indices[0]] - probas[sorted_indices[1]])
-
-        if best_confidence >= self.confidence_threshold and margin >= 0.15:
+        if best_confidence >= self.confidence_threshold:
             accepted_sign = raw_sign
         else:
             accepted_sign = "UNCERTAIN"
