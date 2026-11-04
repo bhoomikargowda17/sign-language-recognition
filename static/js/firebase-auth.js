@@ -131,6 +131,63 @@ import("https://www.gstatic.com/firebasejs/11.6.0/firebase-app.js")
         console.error("Firebase initialization failed:", error);
         alert("Unable to connect to Firebase. Please refresh the page.");
     });
+// Send recognized sentence to another registered user
+document.addEventListener("DOMContentLoaded", () => {
+
+    const sendButton = document.getElementById("sendMessageBtn");
+    const recipientInput = document.getElementById("recipientEmail");
+    const statusBox = document.getElementById("sendMessageStatus");
+    const sentenceOutput = document.getElementById("sentenceOutput");
+
+    if (!sendButton) return;
+
+    sendButton.addEventListener("click", async () => {
+
+        const recipientEmail = recipientInput.value.trim();
+        const messageText = sentenceOutput.value.trim();
+
+        if (!recipientEmail || !messageText) {
+            statusBox.textContent =
+                "Please enter a recipient email and recognize a sentence.";
+            return;
+        }
+
+        try {
+            sendButton.disabled = true;
+            statusBox.textContent = "Sending message...";
+
+            const token = await window.signAIGetToken();
+
+            const response = await fetch("/send-message", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": "Bearer " + token
+                },
+                body: JSON.stringify({
+                    recipientEmail: recipientEmail,
+                    text: messageText
+                })
+            });
+
+            const result = await response.json();
+
+            if (!response.ok) {
+                throw new Error(result.error || "Message could not be sent.");
+            }
+
+            statusBox.textContent = "Message sent successfully!";
+
+        } catch (error) {
+            console.error("Message sending error:", error);
+            statusBox.textContent = error.message;
+        } finally {
+            sendButton.disabled = false;
+        }
+
+    });
+
+});
 
 
 
