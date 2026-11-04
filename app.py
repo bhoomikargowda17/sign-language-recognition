@@ -15,7 +15,7 @@ import numpy as np
 import pandas as pd
 from flask import Flask, render_template, request, jsonify, Response
 import firebase_admin
-from firebase_admin import credentials, firestore, auth
+from firebase_admin import credentials, firestore, auth, messaging
 
 from landmark_processor import LandmarkProcessor
 from model_manager import SignModelManager
