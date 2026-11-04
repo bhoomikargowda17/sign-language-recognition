@@ -14,6 +14,8 @@ import cv2
 import numpy as np
 import pandas as pd
 from flask import Flask, render_template, request, jsonify, Response
+import firebase_admin
+from firebase_admin import credentials, firestore, auth
 
 from landmark_processor import LandmarkProcessor
 from model_manager import SignModelManager
@@ -21,6 +23,15 @@ from train import train_model
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = "sign-language-ai-secret-key-2026"
+# Initialize Firebase Admin SDK
+firebase_cred = credentials.Certificate(
+   "/etc/secrets/firebase-service-account.json"
+)
+
+firebase_admin.initialize_app(firebase_cred)
+
+db = firestore.client()
+
 
 # Initialize singletons
 processor = LandmarkProcessor()
