@@ -340,6 +340,28 @@ def send_message():
             "text": message_text,
             "createdAt": firestore.SERVER_TIMESTAMP
         })
+       # Send push notification to recipient
+        try:
+            recipient_user = db.collection("users").document(recipient_id).get()
+
+            if recipient_user.exists:
+                fcm_token = recipient_user.to_dict().get("fcmToken")
+
+                if fcm_token:
+                    notification = messaging.Message(
+                        notification=messaging.Notification(
+                            title="New SignAI Message",
+                            body=f"{sender_email} sent you a message."
+                        ),
+                        token=fcm_token
+                    )
+
+                    messaging.send(notification)
+                    print("Push notification sent successfully.")
+
+        except Exception as notification_error:
+            print("Push notification error:", str(notification_error))
+
 
         return jsonify({
             "success": True,
