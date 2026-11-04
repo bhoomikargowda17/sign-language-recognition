@@ -209,7 +209,7 @@
           <div class="token-container" id="tokenContainer" tabindex="0" role="textbox" aria-label="Sentence tokens output" aria-multiline="true">
             <span class="token-placeholder" id="tokenPlaceholder">Recognized signs will accumulate here as you hold them steady.</span>
           </div>
-          <!-- Underlying textarea kept in sync for hooks, clipboard, and forms -->
+           <!-- Underlying textarea kept in sync for hooks, clipboard, and forms -->
           <textarea id="sentenceOutput" class="visually-hidden" placeholder="Recognized signs will accumulate here as you hold them steady..." rows="2" aria-hidden="true"></textarea>
         </div>
 
@@ -223,6 +223,23 @@
           </button>
           <p class="helper-text">Hold a sign for 1.2 s to add it.</p>
         </div>
+        <div class="card-footer">
+    <h3>Send Recognized Sentence</h3>
+
+    <input
+        type="email"
+        id="recipientEmail"
+        placeholder="Enter recipient's registered email"
+        style="width:100%; padding:12px; margin:10px 0;"
+    >
+
+    <button id="sendMessageBtn" class="btn btn-primary">
+        Send Message
+    </button>
+
+    <p id="sendMessageStatus"></p>
+</div>
+
       </section>
     </div>
 
