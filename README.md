@@ -134,3 +134,28 @@ http://127.0.0.1:5000
 py -3.11 collect_data.py --label PEACE --samples 50
 py -3.11 train.py
 ```
+
+---
+
+## ☁️ Deploying to Render
+
+This repository is pre-configured with:
+* `render.yaml` (Blueprint specification)
+* `Procfile` (`web: gunicorn --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 120 app:app`)
+* `runtime.txt` (`python-3.10.12`)
+* `Dockerfile` (for container runtime option)
+
+### Deployment Steps on Render:
+1. Log in to [Render Dashboard](https://dashboard.render.com).
+2. Click **New +** > **Web Service**.
+3. Connect your GitHub repository: `https://github.com/bhoomikargowda17/sign-language-recognition`.
+4. Configure service settings:
+   * **Name**: `sign-language-recognition`
+   * **Language**: `Python 3`
+   * **Branch**: `main`
+   * **Build Command**: `python -m pip install --upgrade pip && python -m pip install -r requirements.txt`
+   * **Start Command**: `gunicorn --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 120 app:app`
+5. (Optional) Under **Advanced** > **Secret Files**, if you use Firebase Messaging/Auth, add:
+   * **Filename**: `firebase-service-account.json`
+   * **Contents**: *(paste your Firebase service account JSON)*
+6. Click **Create Web Service**. Render will build and deploy the app with automatic HTTPS.
