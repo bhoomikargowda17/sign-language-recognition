@@ -972,36 +972,51 @@ document.addEventListener('DOMContentLoaded', () => {
   let isCollecting = false;
 
   startRecordingBtn.addEventListener('click', async () => {
-    const label = newSignLabel.value.trim().toUpperCase();
+    const rawLabel = newSignLabel.value.trim();
+    const label = rawLabel.replace(/\s+/g, ' ').toUpperCase();
+
     if (!label) {
-      showToast("Enter a sign label first.", "error");
-      return;
-    }
-    if (!isStreaming) {
-      showToast("Start camera first to record samples.", "error");
+      showToast("Please enter a sign label first.", "error");
+      newSignLabel.focus();
       return;
     }
 
-    if (isCollecting) return;
+    if (["UNCERTAIN", "NONE", "NULL", "UNKNOWN"].includes(label)) {
+      showToast(`'${label}' is a reserved keyword. Choose another name.`, "error");
+      return;
+    }
+
+    if (!isStreaming) {
+      showToast("Please start the camera before recording samples.", "error");
+      return;
+    }
+
+    if (isCollecting) {
+      // Allow user to cancel/stop recording in progress
+      isCollecting = false;
+      startRecordingBtn.textContent = "Record 30 samples";
+      collectorStatusText.textContent = "Recording paused.";
+      collectorStatusText.style.color = "";
+      return;
+    }
+
     isCollecting = true;
-    startRecordingBtn.disabled = true;
-    startRecordingBtn.textContent = "Recording...";
+    startRecordingBtn.textContent = "Stop recording";
 
     const targetSamples = 30;
     let recorded = 0;
+    let failedAttempts = 0;
+    const maxFailedAttempts = 40;
+
     sampleFill.style.width = "0%";
     sampleCountBadge.textContent = `0 / ${targetSamples} samples`;
-    collectorStatusText.textContent = `Recording '${label}'. Hold pose steady.`;
+    collectorStatusText.textContent = `Position hand for '${label}'. Recording...`;
+    collectorStatusText.style.color = "";
 
-    const interval = setInterval(async () => {
-      if (recorded >= targetSamples || !isStreaming) {
-        clearInterval(interval);
-        isCollecting = false;
-        startRecordingBtn.disabled = false;
-        startRecordingBtn.textContent = "Record 30 samples";
-        collectorStatusText.textContent = `Recorded ${recorded} samples for '${label}'. Click 'Retrain model now'.`;
-        showToast(`Collected ${recorded} samples for ${label}.`);
-        return;
+    while (isCollecting && recorded < targetSamples && isStreaming) {
+      if (!video || video.readyState < 2 || video.videoWidth === 0) {
+        await new Promise(r => setTimeout(r, 100));
+        continue;
       }
 
       captureCtx.drawImage(video, 0, 0, captureCanvas.width, captureCanvas.height);
@@ -1013,16 +1028,48 @@ document.addEventListener('DOMContentLoaded', () => {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ label, image: base64Image })
         });
+
         if (res.ok) {
           recorded++;
+          failedAttempts = 0;
           const pct = Math.round((recorded / targetSamples) * 100);
           sampleFill.style.width = `${pct}%`;
           sampleCountBadge.textContent = `${recorded} / ${targetSamples} samples`;
+          collectorStatusText.textContent = `Recording '${label}'... (${recorded} / ${targetSamples})`;
+          collectorStatusText.style.color = "";
+        } else {
+          failedAttempts++;
+          if (failedAttempts >= 3) {
+            collectorStatusText.textContent = "⚠️ Hand not detected — hold hand clearly in camera view";
+            collectorStatusText.style.color = "#E05A47";
+          }
         }
       } catch (e) {
         console.warn("Sample capture failed:", e);
+        failedAttempts++;
       }
-    }, 150);
+
+      if (failedAttempts >= maxFailedAttempts) {
+        collectorStatusText.textContent = "Recording paused: No hand detected for several seconds. Hold your hand in frame and click Record again.";
+        collectorStatusText.style.color = "#E05A47";
+        break;
+      }
+
+      // Short 120ms pause between samples for natural biomechanical variation
+      await new Promise(r => setTimeout(r, 120));
+    }
+
+    isCollecting = false;
+    startRecordingBtn.textContent = "Record 30 samples";
+
+    if (recorded >= targetSamples) {
+      collectorStatusText.textContent = `✅ Successfully recorded ${recorded} samples for '${label}'! Click 'Retrain model now' below.`;
+      collectorStatusText.style.color = "#0F766E";
+      showToast(`Recorded ${recorded} samples for ${label}. Ready to retrain!`);
+    } else if (recorded > 0) {
+      collectorStatusText.textContent = `Recorded ${recorded} samples for '${label}'. Click 'Retrain model now' or record more.`;
+      collectorStatusText.style.color = "";
+    }
   });
 
   // ==========================================
@@ -1047,11 +1094,19 @@ document.addEventListener('DOMContentLoaded', () => {
   if (closeGuideBottomBtn) closeGuideBottomBtn.addEventListener('click', () => guideModal.classList.remove('active'));
 
   openCollectorBtn.addEventListener('click', () => collectorModal.classList.add('active'));
-  closeCollectorBtn.addEventListener('click', () => collectorModal.classList.remove('active'));
+  closeCollectorBtn.addEventListener('click', () => {
+    isCollecting = false;
+    startRecordingBtn.textContent = "Record 30 samples";
+    collectorModal.classList.remove('active');
+  });
 
   window.addEventListener('click', (e) => {
     if (e.target === guideModal) guideModal.classList.remove('active');
-    if (e.target === collectorModal) collectorModal.classList.remove('active');
+    if (e.target === collectorModal) {
+      isCollecting = false;
+      startRecordingBtn.textContent = "Record 30 samples";
+      collectorModal.classList.remove('active');
+    }
     if (e.target === retrainConfirmModal) retrainConfirmModal.style.display = 'none';
   });
 

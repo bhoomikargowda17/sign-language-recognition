@@ -29,6 +29,7 @@ def train_model(data_path="data/dataset.csv", model_dir="model", n_estimators=15
 
     print(f"Loading dataset from {data_path}...")
     df = pd.read_csv(data_path)
+    df = df.dropna().reset_index(drop=True)
 
     if "label" not in df.columns:
         raise ValueError("Dataset CSV must contain a 'label' column.")
@@ -46,10 +47,25 @@ def train_model(data_path="data/dataset.csv", model_dir="model", n_estimators=15
     print(f"Discovered {len(classes)} dynamic sign classes: {classes}")
     print(f"Total samples: {len(X)} across {X.shape[1]} features.")
 
-    # Stratified Train/Test Split
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.20, random_state=42, stratify=y
-    )
+    # Safe Train/Test Split (handles small custom classes gracefully)
+    class_counts = pd.Series(y).value_counts()
+    min_samples = class_counts.min()
+
+    can_stratify = (min_samples >= 2) and (len(classes) * 5 <= len(y))
+    try:
+        if can_stratify:
+            X_train, X_test, y_train, y_test = train_test_split(
+                X, y, test_size=0.20, random_state=42, stratify=y
+            )
+        else:
+            X_train, X_test, y_train, y_test = train_test_split(
+                X, y, test_size=0.20, random_state=42
+            )
+    except Exception as split_err:
+        print(f"Notice: Stratification bypassed: {split_err}")
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, test_size=0.15, random_state=42
+        )
 
     print(f"Training set: {len(X_train)} samples | Test set: {len(X_test)} samples")
     print(f"Training Random Forest Classifier (n_estimators={n_estimators})...")
@@ -70,11 +86,21 @@ def train_model(data_path="data/dataset.csv", model_dir="model", n_estimators=15
     print(f"\n================ MODEL EVALUATION ================")
     print(f"Test Accuracy: {acc * 100:.2f}%\n")
     print("Classification Report:")
-    print(classification_report(y_test, y_pred))
+    print(classification_report(y_test, y_pred, zero_division=0))
 
-    # Save Model Artifacts
+    # Save Model Artifacts Atomically
     print(f"Saving trained model to {model_path}...")
-    joblib.dump(clf, model_path)
+    temp_model_path = model_path + ".tmp"
+    joblib.dump(clf, temp_model_path)
+    if os.path.exists(model_path):
+        try:
+            os.remove(model_path)
+        except OSError:
+            pass
+    try:
+        os.replace(temp_model_path, model_path)
+    except OSError:
+        joblib.dump(clf, model_path)
 
     metadata = {
         "classes": list(clf.classes_),

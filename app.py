@@ -51,8 +51,10 @@ except Exception as fb_err:
 processor = LandmarkProcessor()
 model_manager = SignModelManager(model_dir="model")
 
-# Server-side camera lock & state
+# Server-side camera & dataset synchronization locks
 camera_lock = threading.Lock()
+dataset_lock = threading.Lock()
+retrain_lock = threading.Lock()
 server_camera = None
 
 
@@ -154,14 +156,19 @@ def collect_sample():
     """
     Appends a new sample directly to the dataset from the web interface.
     Accepts: { label: str, image: base64_image } or { label: str, landmarks: [...] }
+    Includes bilateral mirroring augmentation for left/right hand robustness.
     """
     data = request.get_json(silent=True)
     if not data or "label" not in data:
         return jsonify({"success": False, "error": "Missing label"}), 400
 
     label = data["label"].strip().upper()
+    label = re.sub(r"\s+", " ", label)
     if not label or not re.match(r"^[A-Z0-9 _-]+$", label):
-        return jsonify({"success": False, "error": "Invalid label format"}), 400
+        return jsonify({"success": False, "error": "Invalid label format (letters, numbers, spaces, and hyphens only)"}), 400
+
+    if label in ["UNCERTAIN", "NONE", "NULL", "UNKNOWN"]:
+        return jsonify({"success": False, "error": f"'{label}' is a reserved keyword. Please choose another name."}), 400
 
     norm_features = None
 
@@ -175,16 +182,28 @@ def collect_sample():
     if norm_features is None or len(norm_features) != 63:
         return jsonify({"success": False, "error": "Could not extract valid hand landmarks from sample"}), 400
 
-    # Append to dataset.csv
+    # Bilateral horizontal reflection (-x, y, z) for dual-hand invariance
+    mirrored_features = []
+    for idx in range(21):
+        x = norm_features[idx * 3]
+        y = norm_features[idx * 3 + 1]
+        z = norm_features[idx * 3 + 2]
+        mirrored_features.extend([round(-x, 5), round(y, 5), round(z, 5)])
+
+    # Append to dataset.csv with thread safety
     csv_path = "data/dataset.csv"
     os.makedirs("data", exist_ok=True)
     cols = LandmarkProcessor.get_feature_column_names() + ["label"]
-    new_row_df = pd.DataFrame([norm_features + [label]], columns=cols)
+    new_rows_df = pd.DataFrame([
+        norm_features + [label],
+        mirrored_features + [label]
+    ], columns=cols)
 
-    if os.path.exists(csv_path):
-        new_row_df.to_csv(csv_path, mode="a", header=False, index=False)
-    else:
-        new_row_df.to_csv(csv_path, mode="w", header=True, index=False)
+    with dataset_lock:
+        if os.path.exists(csv_path):
+            new_rows_df.to_csv(csv_path, mode="a", header=False, index=False)
+        else:
+            new_rows_df.to_csv(csv_path, mode="w", header=True, index=False)
 
     return jsonify({
         "success": True,
@@ -197,13 +216,22 @@ def collect_sample():
 def retrain():
     """
     Triggers model retraining on data/dataset.csv and reloads the active model.
+    Guarantees thread-safe single-instance execution.
     """
+    if not retrain_lock.acquire(blocking=False):
+        return jsonify({
+            "success": False,
+            "error": "Model retraining is already in progress. Please wait a moment."
+        }), 429
+
     try:
         data_path = "data/dataset.csv"
         if not os.path.exists(data_path):
             return jsonify({"success": False, "error": "Dataset file data/dataset.csv does not exist"}), 400
 
-        clf, metadata = train_model(data_path=data_path, model_dir="model")
+        with dataset_lock:
+            clf, metadata = train_model(data_path=data_path, model_dir="model")
+
         reload_success = model_manager.load_model()
 
         return jsonify({
@@ -215,7 +243,10 @@ def retrain():
             "total_samples": metadata.get("total_samples", 0)
         })
     except Exception as e:
+        print(f"Error during retraining: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
+    finally:
+        retrain_lock.release()
 
 
 def gen_video_frames():

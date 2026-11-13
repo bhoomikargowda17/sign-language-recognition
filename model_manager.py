@@ -39,11 +39,14 @@ class SignModelManager:
             return False
 
         try:
-            self.model = joblib.load(self.model_path)
-            with open(self.labels_path, "r") as f:
-                self.metadata = json.load(f)
-            self.classes = list(self.model.classes_)
-            self.history_buffer.clear()
+            with self.lock:
+                new_model = joblib.load(self.model_path)
+                with open(self.labels_path, "r") as f:
+                    new_metadata = json.load(f)
+                self.model = new_model
+                self.metadata = new_metadata
+                self.classes = list(self.model.classes_)
+                self.history_buffer.clear()
             print(f"Loaded model successfully. Active classes ({len(self.classes)}): {self.classes}")
             return True
         except Exception as e:

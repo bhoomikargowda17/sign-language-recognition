@@ -6,6 +6,7 @@ Verifies landmark extraction, normalization, model inference, and Flask endpoint
 import unittest
 import json
 import base64
+import pandas as pd
 import numpy as np
 import cv2
 from landmark_processor import LandmarkProcessor
@@ -87,6 +88,33 @@ class TestSignLanguageRecognition(unittest.TestCase):
         self.assertTrue(data["success"])
         self.assertFalse(data["hand_detected"])
         self.assertIsNone(data["sign"])
+
+    def test_collect_sample_validation(self):
+        """Verify POST /collect_sample rejects invalid, empty, or reserved labels."""
+        # Missing label
+        res = self.app_client.post("/collect_sample", json={})
+        self.assertEqual(res.status_code, 400)
+
+        # Reserved label
+        res = self.app_client.post("/collect_sample", json={"label": "UNCERTAIN"})
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("reserved", res.get_json()["error"])
+
+        # Invalid characters
+        res = self.app_client.post("/collect_sample", json={"label": "BAD<TAG>!@#"})
+        self.assertEqual(res.status_code, 400)
+
+        # Valid landmark sample collection
+        hand = self.generator._create_base_hand()
+        raw_lms = [{"x": hand[i][0], "y": hand[i][1], "z": hand[i][2]} for i in range(21)]
+        res = self.app_client.post("/collect_sample", json={"label": "TESTCUSTOM", "landmarks": raw_lms})
+        self.assertEqual(res.status_code, 200)
+        self.assertTrue(res.get_json()["success"])
+
+        # Clean test sample from dataset
+        df = pd.read_csv("data/dataset.csv")
+        df = df[df["label"] != "TESTCUSTOM"]
+        df.to_csv("data/dataset.csv", index=False)
 
 
 if __name__ == "__main__":
