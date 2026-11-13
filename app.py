@@ -14,6 +14,8 @@ import cv2
 import numpy as np
 import pandas as pd
 from flask import Flask, render_template, request, jsonify, Response
+import firebase_admin
+from firebase_admin import credentials, firestore, auth, messaging
 
 from landmark_processor import LandmarkProcessor
 from model_manager import SignModelManager
@@ -21,6 +23,15 @@ from train import train_model
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = "sign-language-ai-secret-key-2026"
+# Initialize Firebase Admin SDK
+firebase_cred = credentials.Certificate(
+   "/etc/secrets/firebase-service-account.json"
+)
+
+firebase_admin.initialize_app(firebase_cred)
+
+db = firestore.client()
+
 
 # Initialize singletons
 processor = LandmarkProcessor()
@@ -243,6 +254,133 @@ def health():
     })
 
 
+
+   
+
+@app.route("/firebase-test")
+def firebase_test():
+    try:
+        db.collection("_connection_test").document("status").get()
+
+        return jsonify({
+            "success": True,
+            "message": "Firebase Firestore connected successfully!"
+        })
+
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+@app.route("/send-message", methods=["POST"])
+def send_message():
+    try:
+        # Verify Firebase login
+        auth_header = request.headers.get("Authorization", "")
+
+        if not auth_header.startswith("Bearer "):
+            return jsonify({"success": False, "error": "Login required"}), 401
+
+        id_token = auth_header.split(" ", 1)[1]
+        decoded_token = auth.verify_id_token(id_token)
+
+        sender_id = decoded_token["uid"]
+        sender_email = decoded_token.get("email", "")
+
+        # Read message details
+        data = request.get_json(silent=True) or {}
+
+        recipient_email = data.get("recipientEmail", "").strip().lower()
+        message_text = data.get("text", "").strip()
+
+        if not recipient_email or not message_text:
+            return jsonify({
+                "success": False,
+                "error": "Recipient email and message are required"
+            }), 400
+
+        if len(message_text) > 1000:
+            return jsonify({
+                "success": False,
+                "error": "Message must be 1000 characters or fewer"
+            }), 400
+
+        if recipient_email == sender_email.lower():
+            return jsonify({
+                "success": False,
+                "error": "You cannot send a message to yourself"
+            }), 400
+
+        # Find recipient in Firestore
+        profiles = (
+            db.collection("publicProfiles")
+            .where("email", "==", recipient_email)
+            .limit(1)
+            .stream()
+        )
+
+        recipient = next(profiles, None)
+
+        if recipient is None:
+            return jsonify({
+                "success": False,
+                "error": "Recipient not found"
+            }), 404
+
+        recipient_id = recipient.id
+
+        # Save message using the Android app's existing format
+        message_ref = db.collection("messages").document()
+
+        message_ref.set({
+            "senderId": sender_id,
+            "senderEmail": sender_email,
+            "recipientId": recipient_id,
+            "recipientEmail": recipient_email,
+            "text": message_text,
+            "createdAt": firestore.SERVER_TIMESTAMP
+        })
+       # Send push notification to recipient
+        try:
+            recipient_user = db.collection("users").document(recipient_id).get()
+
+            if recipient_user.exists:
+                fcm_token = recipient_user.to_dict().get("fcmToken")
+
+                if fcm_token:
+                    notification = messaging.Message(
+                        notification=messaging.Notification(
+                            title="New SignAI Message",
+                            body=f"{sender_email} sent you a message."
+                        ),
+                        token=fcm_token
+                    )
+
+                    messaging.send(notification)
+                    print("Push notification sent successfully.")
+
+        except Exception as notification_error:
+            print("Push notification error:", str(notification_error))
+
+
+        return jsonify({
+            "success": True,
+            "message": "Message sent successfully"
+        })
+
+    except Exception as e:
+        print("Message sending error:", str(e))
+
+        return jsonify({
+            "success": False,
+            "error": "Unable to send message"
+        }), 500
+
+
+
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=False)
+   
