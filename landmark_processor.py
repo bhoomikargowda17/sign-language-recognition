@@ -3,6 +3,7 @@ Hand Landmark Detection & Processing Module using MediaPipe Hands.
 Extracts 21 3D landmarks and normalizes them for translation & scale invariance.
 """
 
+import threading
 import cv2
 import mediapipe as mp
 import numpy as np
@@ -28,7 +29,7 @@ class LandmarkProcessor:
         (5, 9), (9, 13), (13, 17)              # Palm base
     ]
 
-    def __init__(self, static_image_mode=False, max_num_hands=1, min_detection_confidence=0.60, min_tracking_confidence=0.55):
+    def __init__(self, static_image_mode=True, max_num_hands=1, min_detection_confidence=0.45, min_tracking_confidence=0.45):
         self.mp_hands = mp.solutions.hands
         self.hands = self.mp_hands.Hands(
             static_image_mode=static_image_mode,
@@ -38,6 +39,7 @@ class LandmarkProcessor:
         )
         self.mp_draw = mp.solutions.drawing_utils
         self.mp_draw_styles = mp.solutions.drawing_styles
+        self.lock = threading.Lock()
 
     def process_frame(self, frame_bgr):
         """
@@ -52,7 +54,8 @@ class LandmarkProcessor:
             return None, None, frame_bgr, None
 
         frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
-        results = self.hands.process(frame_rgb)
+        with self.lock:
+            results = self.hands.process(frame_rgb)
         annotated_frame = frame_bgr.copy()
 
         if not results.multi_hand_landmarks:

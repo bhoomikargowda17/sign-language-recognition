@@ -94,6 +94,7 @@ def predict():
         "success": True,
         "hand_detected": True,
         "sign": pred["predicted_sign"],
+        "raw_sign": pred.get("raw_sign"),
         "smoothed_sign": pred["smoothed_sign"],
         "confidence": pred["confidence"],
         "probabilities": pred["probabilities"],

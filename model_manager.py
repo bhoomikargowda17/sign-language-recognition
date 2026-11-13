@@ -7,6 +7,7 @@ temporal smoothing to provide rock-solid real-time predictions.
 import os
 import json
 import joblib
+import threading
 from collections import deque, Counter
 import numpy as np
 
@@ -14,12 +15,13 @@ import numpy as np
 class SignModelManager:
     """Manages model loading, inference, confidence scoring, and prediction smoothing."""
 
-    def __init__(self, model_dir="model", smoothing_window=5, confidence_threshold=0.50):
+    def __init__(self, model_dir="model", smoothing_window=5, confidence_threshold=0.30):
         self.model_dir = model_dir
         self.model_path = os.path.join(model_dir, "sign_classifier.joblib")
         self.labels_path = os.path.join(model_dir, "labels.json")
         self.smoothing_window = smoothing_window
         self.confidence_threshold = confidence_threshold
+        self.lock = threading.Lock()
 
         self.model = None
         self.classes = []
@@ -94,20 +96,22 @@ class SignModelManager:
         else:
             accepted_sign = "UNCERTAIN"
 
-        # Update smoothing buffer
-        self.history_buffer.append(accepted_sign)
+        with self.lock:
+            # Update smoothing buffer
+            self.history_buffer.append(accepted_sign)
 
-        # Compute smoothed prediction (majority vote in buffer)
-        counts = Counter(self.history_buffer)
-        most_common_sign, most_common_count = counts.most_common(1)[0]
-        # Require at least 50% majority in the window to switch smoothed sign
-        if most_common_count >= max(2, len(self.history_buffer) // 2):
-            smoothed_sign = most_common_sign
-        else:
-            smoothed_sign = accepted_sign
+            # Compute smoothed prediction favoring valid gesture detections over noise
+            valid_history = [s for s in self.history_buffer if s != "UNCERTAIN"]
+            if valid_history:
+                counts = Counter(valid_history)
+                most_common_sign, most_common_count = counts.most_common(1)[0]
+                smoothed_sign = most_common_sign
+            else:
+                smoothed_sign = "UNCERTAIN"
 
         return {
             "predicted_sign": accepted_sign,
+            "raw_sign": raw_sign,
             "smoothed_sign": smoothed_sign,
             "confidence": round(best_confidence, 3),
             "probabilities": {k: round(v, 3) for k, v in prob_dict.items()},
@@ -116,7 +120,8 @@ class SignModelManager:
 
     def reset_buffer(self):
         """Clears the temporal smoothing buffer."""
-        self.history_buffer.clear()
+        with self.lock:
+            self.history_buffer.clear()
 
     def get_info(self):
         """Returns model status and metadata."""

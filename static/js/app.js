@@ -121,6 +121,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // Sentence Accumulator State
   let currentStableSign = null;
   let stableSignStartTime = 0;
+  let lastValidSignTime = 0;
   let lastAppendedSign = null;
   let handEnteredTime = 0;
   let isHandPresent = false;
@@ -134,6 +135,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Offscreen capture canvas
   const captureCanvas = document.createElement('canvas');
+  captureCanvas.width = 320;
+  captureCanvas.height = 240;
   const captureCtx = captureCanvas.getContext('2d');
 
   // Mobile Audio & Speech Unlock on First User Touch
@@ -245,6 +248,13 @@ document.addEventListener('DOMContentLoaded', () => {
         console.warn("Initial video.play() warning:", playErr);
         video.muted = true;
         await video.play();
+      }
+
+      // Wait for video dimensions to settle before sizing canvases
+      let attempts = 0;
+      while ((!video.videoWidth || video.videoWidth === 0) && attempts < 10) {
+        await new Promise(r => setTimeout(r, 60));
+        attempts++;
       }
 
       isStreaming = true;
@@ -362,12 +372,18 @@ document.addEventListener('DOMContentLoaded', () => {
     if (video.videoWidth > 0 && video.videoHeight > 0) {
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
-      captureCanvas.width = 320;
-      captureCanvas.height = 240;
+
+      // Maintain camera aspect ratio to eliminate squishing or geometric distortion
+      const targetW = 320;
+      captureCanvas.width = targetW;
+      captureCanvas.height = Math.round(targetW * (video.videoHeight / video.videoWidth));
     }
   }
 
   video.addEventListener('loadedmetadata', resizeCanvas);
+  video.addEventListener('loadeddata', resizeCanvas);
+  video.addEventListener('canplay', resizeCanvas);
+  video.addEventListener('playing', resizeCanvas);
   window.addEventListener('resize', resizeCanvas);
 
   // ==========================================
@@ -392,7 +408,7 @@ document.addEventListener('DOMContentLoaded', () => {
         inactivityNotice.style.display = 'none';
       }
 
-      if (!isPredicting && video.readyState === video.HAVE_ENOUGH_DATA) {
+      if (!isPredicting && video.readyState >= 2 && video.videoWidth > 0) {
         dispatchFrame();
       }
 
@@ -424,9 +440,14 @@ document.addEventListener('DOMContentLoaded', () => {
       if (response.ok) {
         const data = await response.json();
         handleInferenceResult(data);
+      } else {
+        updateDetectionStatus("Server error (" + response.status + ")", "neutral");
+        predictedSignHelper.textContent = "Server returned an error — check backend terminal";
       }
     } catch (err) {
       console.warn("Prediction dispatch error:", err);
+      updateDetectionStatus("Connecting to server...", "neutral");
+      predictedSignHelper.textContent = "Waiting for recognition server connection...";
     } finally {
       isPredicting = false;
     }
@@ -471,7 +492,10 @@ document.addEventListener('DOMContentLoaded', () => {
       drawHandSkeleton(data.landmarks, data.connections || defaultConnections);
     }
 
-    const sign = data.smoothed_sign || data.sign || "UNCERTAIN";
+    // Use directly recognized sign if valid, otherwise smoothed sign
+    const sign = (data.sign && data.sign !== "UNCERTAIN")
+      ? data.sign
+      : (data.smoothed_sign || "UNCERTAIN");
     const confidence = data.confidence || 0.0;
     const confPct = Math.round(confidence * 100);
 
@@ -612,21 +636,27 @@ document.addEventListener('DOMContentLoaded', () => {
   function handleSentenceAccumulation(sign, confidence) {
     const now = performance.now();
 
-    // Grace period when hand first enters view (500ms) to prevent false detection on motion
-    if (now - handEnteredTime < 500) {
+    // Grace period when hand first enters view (300ms) to prevent false detection on entry motion
+    if (now - handEnteredTime < 300) {
       currentStableSign = null;
       holdProgressBar.style.width = "0%";
       if (hudHoldFill) hudHoldFill.style.width = "0%";
       return;
     }
 
-    if (!sign || sign === "UNCERTAIN" || confidence < 0.50) {
+    if (!sign || sign === "UNCERTAIN" || confidence < 0.30) {
+      // 250ms tolerance so micro-glitches or minor confidence dips do not reset sentence progress
+      if (currentStableSign && (now - lastValidSignTime < 250)) {
+        return;
+      }
       currentStableSign = null;
       holdProgressBar.style.width = "0%";
       holdProgressBar.classList.remove('committed');
       if (hudHoldFill) hudHoldFill.style.width = "0%";
       return;
     }
+
+    lastValidSignTime = now;
 
     if (currentStableSign !== sign) {
       currentStableSign = sign;
@@ -782,7 +812,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function handleAutoSpeak(sign, confidence) {
-    if (!autoSpeakToggle.checked || !sign || sign === "UNCERTAIN" || confidence < 0.55) return;
+    if (!autoSpeakToggle.checked || !sign || sign === "UNCERTAIN" || confidence < 0.35) return;
 
     const now = performance.now();
     if (now - handEnteredTime < 500) return; // Ignore initial entry motion
