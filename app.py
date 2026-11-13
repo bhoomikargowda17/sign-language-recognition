@@ -14,8 +14,14 @@ import cv2
 import numpy as np
 import pandas as pd
 from flask import Flask, render_template, request, jsonify, Response
-import firebase_admin
-from firebase_admin import credentials, firestore, auth, messaging
+try:
+    import firebase_admin
+    from firebase_admin import credentials, firestore, auth, messaging
+    HAS_FIREBASE = True
+except ImportError:
+    HAS_FIREBASE = False
+    firebase_admin = None
+    credentials = firestore = auth = messaging = None
 
 from landmark_processor import LandmarkProcessor
 from model_manager import SignModelManager
@@ -23,14 +29,22 @@ from train import train_model
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = "sign-language-ai-secret-key-2026"
-# Initialize Firebase Admin SDK
-firebase_cred = credentials.Certificate(
-   "/etc/secrets/firebase-service-account.json"
+# Initialize Firebase Admin SDK if service account is available (e.g. Render secret files)
+firebase_service_account_path = os.environ.get(
+    "FIREBASE_SERVICE_ACCOUNT_PATH",
+    "/etc/secrets/firebase-service-account.json"
 )
-
-firebase_admin.initialize_app(firebase_cred)
-
-db = firestore.client()
+db = None
+try:
+    if HAS_FIREBASE and os.path.exists(firebase_service_account_path):
+        firebase_cred = credentials.Certificate(firebase_service_account_path)
+        firebase_admin.initialize_app(firebase_cred)
+        db = firestore.client()
+        print("Firebase Admin initialized successfully.")
+    else:
+        print(f"Notice: Firebase service account not found at {firebase_service_account_path}. Messaging features will run in offline mode.")
+except Exception as fb_err:
+    print(f"Warning: Failed to initialize Firebase Admin: {fb_err}")
 
 
 # Initialize singletons
@@ -259,6 +273,12 @@ def health():
 
 @app.route("/firebase-test")
 def firebase_test():
+    if db is None:
+        return jsonify({
+            "success": False,
+            "error": "Firebase service account not configured on this environment"
+        }), 503
+
     try:
         db.collection("_connection_test").document("status").get()
 
@@ -275,6 +295,12 @@ def firebase_test():
 
 @app.route("/send-message", methods=["POST"])
 def send_message():
+    if db is None:
+        return jsonify({
+            "success": False,
+            "error": "Firebase messaging is not configured on this environment"
+        }), 503
+
     try:
         # Verify Firebase login
         auth_header = request.headers.get("Authorization", "")
